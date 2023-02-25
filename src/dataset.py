@@ -24,9 +24,16 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from biock import load_fasta, get_reverse_strand, encode_sequence
 from biock import HG38_FASTA_H5
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def load_adata(data) -> AnnData:
-    return sc.read_h5ad(data)
+    adata = sc.read_h5ad(data)
+    if adata.X.max() > 1:
+        logger.info("binarized")
+        adata.X.data = (adata.X.data > 0).astype(np.float32)
+    return adata
 
 ONEHOT = np.concatenate((
     np.zeros((1, 4), dtype=np.float16),
@@ -34,7 +41,7 @@ ONEHOT = np.concatenate((
 ))
 
 class SingleCellDataset(Dataset):
-    def __init__(self, data: AnnData, seq_len=1344, genome=HG38_FASTA_H5):
+    def __init__(self, data: AnnData, genome, seq_len=1344):
         sc.pp.filter_genes(data, min_cells=int(round(0.01 * data.shape[0])))
         self.data = data
         self.seq_len = seq_len
@@ -49,6 +56,9 @@ class SingleCellDataset(Dataset):
         del self.data.X
         if "chrom" in self.var.keys():
             self.chroms = self.var["chrom"]
+        elif "chr" in self.var.keys():
+            self.chroms = self.var["chr"]
+
 
     def __len__(self):
         return self.X.shape[0]
@@ -61,7 +71,21 @@ class SingleCellDataset(Dataset):
             strand = '.'
         start, end = region.split('-')
         mid = (int(start) + int(end)) // 2
-        seq = self.genome[chrom][mid - self.seq_len//2:mid + self.seq_len//2]
+        left, right = mid - self.seq_len//2, mid + self.seq_len//2
+        left_pad, right_pad = 0, 0
+        if left < 0:
+            left_pad = -left_pad
+            left = 0
+        if right > self.genome[chrom].shape[0]:
+            right_pad = right - self.genome[chrom].shape[0]
+            right = self.genome[chrom].shape[0]
+        seq = self.genome[chrom][left:right]
+        if len(seq) < self.seq_len:
+            seq = np.concatenate((
+                np.zeros(left_pad, dtype=seq.dtype),
+                seq,
+                np.zeros(right_pad, dtype=seq.dtype),
+            ))
         if strand == '-':
             seq = get_reverse_strand(seq, integer=True)
         # seq = ONEHOT[seq].T
