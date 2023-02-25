@@ -92,12 +92,8 @@ if __name__ == "__main__":
         genome = HG19_FASTA_H5
     ds = dataset.SingleCellDataset(dataset.load_adata(args.data), seq_len=args.seq_len, genome=genome)
 
-    is_valid = np.isin(ds.chroms, ["chr1"])
-    train_idx = np.arange(len(ds))[~is_valid]
-    valid_idx = np.arange(len(ds))[is_valid]
-
     train_loader = DataLoader(
-        Subset(ds, train_idx),
+        ds,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
@@ -106,13 +102,36 @@ if __name__ == "__main__":
         prefetch_factor=4
     )
     
+    sampled = np.random.permutation(np.arange(len(ds)))[:5000]
     valid_loader = DataLoader(
-        Subset(ds, valid_idx),
+        Subset(ds, sampled),
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
     )
+
+    # is_valid = np.isin(ds.chroms, ["chr1"])
+    # train_idx = np.arange(len(ds))[~is_valid]
+    # valid_idx = np.arange(len(ds))[is_valid]
+
+    # train_loader = DataLoader(
+    #     Subset(ds, train_idx),
+    #     batch_size=args.batch_size,
+    #     shuffle=True,
+    #     num_workers=args.num_workers,
+    #     pin_memory=True,
+    #     drop_last=True,
+    #     prefetch_factor=4
+    # )
+    
+    # valid_loader = DataLoader(
+    #     Subset(ds, valid_idx),
+    #     batch_size=args.batch_size,
+    #     shuffle=False,
+    #     num_workers=args.num_workers,
+    #     pin_memory=True,
+    # )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len).to(device)
