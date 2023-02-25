@@ -62,6 +62,7 @@ def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('-i', "--data", default="/bigdat1/user/chenken/data/single-cell/GSE194122_multiome_neurips2021/GSE194122_openproblems_neurips2021_multiome_BMMC_processed.ATAC.h5ad", help="h5ad data")
     p.add_argument("--watch", choices=("auc", "ap", "mean"), default="ap")
+    p.add_argument("-z", type=int, default=32)
     p.add_argument("-lr", type=float, default=1e-3)
     p.add_argument('-b', "--batch-size", help="batch size", type=int, default=128)
     p.add_argument("--num-workers", help="number of workers", type=int, default=32)
@@ -108,7 +109,7 @@ if __name__ == "__main__":
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = scbasset.scBasset(n_cells=ds.X.shape[1], seq_len=args.seq_len).to(device)
+    model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     logger.info("{}\n{}\n{}\n".format(model, model_summary(model), optimizer))
 
@@ -117,7 +118,7 @@ if __name__ == "__main__":
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer=optimizer,
         mode="max",
-        factor=0.5,
+        factor=0.9,
         patience=2,
         min_lr=1e-7
     )
