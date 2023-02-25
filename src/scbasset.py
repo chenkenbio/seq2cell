@@ -82,14 +82,15 @@ class scBasset(nn.Module):
         # 6 
         self.cell_embedding = nn.Linear(hidden_size, n_cells)
     
-    def forward(self, sequence: Tensor, output_embedding=False) -> Tensor:
+    def get_embedding(self):
+        return self.cell_embedding.state_dict()["weight"]
+
+    
+    def forward(self, sequence: Tensor) -> Tensor:
         # assert sequence.shape[1] == self.seq_len
-        sequence = self.onehot[sequence].transpose(1, 2)
+        sequence = self.onehot[sequence.long()].transpose(1, 2)
         sequence = self.pre_conv(sequence)
         sequence = self.conv_towers(sequence)
         sequence = self.post_conv(sequence)
         sequence = self.flatten(sequence)
-        if output_embedding:
-            return self.dense(sequence)
-        else:
-            return self.cell_embedding(self.dense(sequence))
+        return self.cell_embedding(self.dense(sequence))
