@@ -38,6 +38,11 @@ class ConvTower(nn.Module):
 class scBasset(nn.Module):
     def __init__(self, n_cells, hidden_size=32, seq_len: int=1344) -> None:
         super().__init__()
+        self.config = {
+            "n_cells": n_cells,
+            "hidden_size": hidden_size,
+            "seq_len": seq_len
+        }
         self.onehot = nn.Parameter(ONEHOT, requires_grad=False)
         self.seq_len = seq_len
 
@@ -45,8 +50,8 @@ class scBasset(nn.Module):
         self.pre_conv = nn.Sequential( # input: (batch_size, 4, seq_len)
             nn.Conv1d(4, out_channels=288, kernel_size=17, padding=8),
             nn.BatchNorm1d(288),
-            nn.GELU(),
             nn.MaxPool1d(kernel_size=3), # output: (batch_size, 288, 448)
+            nn.GELU(),
         )
         current_len = current_len // 3
 
@@ -75,8 +80,8 @@ class scBasset(nn.Module):
         self.dense = nn.Sequential(
             nn.Linear(current_len, hidden_size),
             nn.BatchNorm1d(hidden_size),
-            nn.Dropout(0.2),
             nn.GELU(),
+            nn.Dropout(0.2),
         )
 
         # 6 
@@ -84,7 +89,7 @@ class scBasset(nn.Module):
     
     def get_embedding(self):
         return self.cell_embedding.state_dict()["weight"]
-
+    
     
     def forward(self, sequence: Tensor) -> Tensor:
         # assert sequence.shape[1] == self.seq_len
