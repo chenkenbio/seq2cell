@@ -22,6 +22,7 @@ import scanpy as sc
 import scbasset
 from biock import make_directory, make_logger, get_run_info
 from biock.pytorch import model_summary, set_seed
+from biock import HG19_FASTA_H5, HG38_FASTA_H5
 
 
 @torch.no_grad()
@@ -63,6 +64,7 @@ def get_args():
     p.add_argument('-i', "--data", default="/bigdat1/user/chenken/data/single-cell/GSE194122_multiome_neurips2021/GSE194122_openproblems_neurips2021_multiome_BMMC_processed.ATAC.h5ad", help="h5ad data")
     p.add_argument("--watch", choices=("auc", "ap", "mean"), default="ap")
     p.add_argument("-z", type=int, default=32)
+    p.add_argument("-g", choices=("hg19", "hg38"), default="hg38")
     p.add_argument("-lr", type=float, default=1e-3)
     p.add_argument('-b', "--batch-size", help="batch size", type=int, default=128)
     p.add_argument("--num-workers", help="number of workers", type=int, default=32)
@@ -84,7 +86,11 @@ if __name__ == "__main__":
     logger = make_logger(title="", filename=os.path.join(args.outdir, "train.log"))
     logger.info(get_run_info(sys.argv, args))
 
-    ds = dataset.SingleCellDataset(dataset.load_adata(args.data), seq_len=args.seq_len)
+    if args.g == "hg38":
+        genome = HG38_FASTA_H5
+    elif args.g == "hg19":
+        genome = HG19_FASTA_H5
+    ds = dataset.SingleCellDataset(dataset.load_adata(args.data), seq_len=args.seq_len, genome=genome)
 
     is_valid = np.isin(ds.chroms, ["chr1"])
     train_idx = np.arange(len(ds))[~is_valid]
