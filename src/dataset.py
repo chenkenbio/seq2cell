@@ -35,11 +35,6 @@ def load_adata(data) -> AnnData:
         adata.X.data = (adata.X.data > 0).astype(np.float32)
     return adata
 
-ONEHOT = np.concatenate((
-    np.zeros((1, 4), dtype=np.float16),
-    np.eye(4, dtype=np.float16),
-))
-
 class SingleCellDataset(Dataset):
     def __init__(self, data: AnnData, genome, seq_len=1344):
         sc.pp.filter_genes(data, min_cells=int(round(0.01 * data.shape[0])))
@@ -84,11 +79,10 @@ class SingleCellDataset(Dataset):
         seq = self.genome[chrom][left:right]
         if len(seq) < self.seq_len:
             seq = np.concatenate((
-                np.zeros(left_pad, dtype=seq.dtype),
+                np.full(left_pad, -1, dtype=seq.dtype),
                 seq,
-                np.zeros(right_pad, dtype=seq.dtype),
+                np.full(right_pad, -1, dtype=seq.dtype),
             ))
         if strand == '-':
             seq = get_reverse_strand(seq, integer=True)
-        # seq = ONEHOT[seq].T
         return seq, self.X[index].toarray().flatten().astype(np.float16)

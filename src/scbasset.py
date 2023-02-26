@@ -18,9 +18,9 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 ONEHOT = torch.cat((
-    torch.zeros(1, 4), # padding
     torch.ones(1, 4) / 4, # 
     torch.eye(4), # A, C, G, T
+    torch.zeros(1, 4), # padding
 ), dim=0).float()
 
 class ConvTower(nn.Module):
