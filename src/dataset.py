@@ -46,8 +46,6 @@ class SingleCellDataset(Dataset):
         self.data = data
         self.seq_len = seq_len
         self.genome = h5py.File(genome, 'r')
-        batch2index = {batch:index for index, batch in enumerate(self.data.obs['batch'].unique())}
-        self.batches = np.asarray(self.data.obs['batch'].map(batch2index).values)
         self.obs = self.data.obs.copy()
         del self.data.obs
         self.var = self.data.var.copy()
@@ -58,7 +56,11 @@ class SingleCellDataset(Dataset):
             self.chroms = self.var["chrom"]
         elif "chr" in self.var.keys():
             self.chroms = self.var["chr"]
-
+        if "batch" in self.obs:
+            batch2index = {batch:index for index, batch in enumerate(self.obs['batch'].unique())}
+            self.batche_ids = np.asarray(self.obs['batch'].map(batch2index).values)
+        else:
+            self.batche_ids = None
 
     def __len__(self):
         return self.X.shape[0]
@@ -89,4 +91,4 @@ class SingleCellDataset(Dataset):
         if strand == '-':
             seq = get_reverse_strand(seq, integer=True)
         # seq = ONEHOT[seq].T
-        return seq, self.X[index].toarray().flatten().astype(np.float16), index, self.batches
+        return seq, self.X[index].toarray().flatten().astype(np.float16)

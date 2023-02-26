@@ -32,7 +32,7 @@ def test_model(model, loader):
     all_label = list()
     all_pred = list()
     # all_embedding = list()
-    for it, (seq, target, _, _) in enumerate(tqdm(loader)):
+    for it, (seq, target) in enumerate(tqdm(loader)):
         seq = seq.to(device)
         # if output_embedding:
             # embedding = model(seq, output_embedding=True).detach()
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     # )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len).to(device)
+    model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len, batch_ids=ds.batche_ids).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     logger.info("{}\n{}\n{}\n".format(model, model_summary(model), optimizer))
 
@@ -152,12 +152,12 @@ if __name__ == "__main__":
     wait = 0
     patience = 20
 
-    max_epoch = 100
+    max_epoch = 1000
     for epoch in range(max_epoch):
         pool = [np.nan for _ in range(10)]
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{max_epoch}")
         model.train()
-        for it, (seq, target, _, _) in enumerate(pbar):
+        for it, (seq, target) in enumerate(pbar):
             seq = seq.to(device)
             target = target.to(device)
             optimizer.zero_grad()

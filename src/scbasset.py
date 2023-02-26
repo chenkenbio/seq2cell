@@ -15,6 +15,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, Subset
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 ONEHOT = torch.cat((
     torch.zeros(1, 4), # padding
@@ -36,13 +37,19 @@ class ConvTower(nn.Module):
         return self.conv(x)
 
 class scBasset(nn.Module):
-    def __init__(self, n_cells, hidden_size=32, seq_len: int=1344) -> None:
+    def __init__(self, n_cells: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, seq_len: int=1344):
         super().__init__()
         self.config = {
             "n_cells": n_cells,
             "hidden_size": hidden_size,
             "seq_len": seq_len
         }
+        if batch_ids is None:
+            self.batch_ids = None
+        else:
+            self.batch_embedding = nn.Embedding(max(batch_ids) + 1, hidden_size)
+            self.batch_ids = nn.Parameter(torch.as_tensor(batch_ids), requires_grad=False)
+            assert self.batch_ids.ndim == 1
         self.onehot = nn.Parameter(ONEHOT, requires_grad=False)
         self.seq_len = seq_len
 
@@ -86,6 +93,8 @@ class scBasset(nn.Module):
 
         # 6 
         self.cell_embedding = nn.Linear(hidden_size, n_cells)
+        # self.cell_embedding = nn.Parameter(torch.randn(hidden_size, n_cells)) # (hidden_size, n_cells)
+        # self.cell_bias = nn.Parameter(torch.randn(n_cells))
     
     def get_embedding(self):
         return self.cell_embedding.state_dict()["weight"]
@@ -98,4 +107,11 @@ class scBasset(nn.Module):
         sequence = self.conv_towers(sequence)
         sequence = self.post_conv(sequence)
         sequence = self.flatten(sequence)
-        return self.cell_embedding(self.dense(sequence))
+        sequence = self.dense(sequence) # (B, hidden_size)
+        logits = self.cell_embedding(sequence)
+        if self.batch_ids is not None:
+            batch_embed = self.batch_embedding(self.batch_ids).T # (n_cell, hidden_size) -> (hidden_size, n_cell)
+            logits += torch.matmul(sequence, batch_embed)
+        return logits
+
+        # return self.cell_embedding(self.dense(sequence))
