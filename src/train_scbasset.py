@@ -38,7 +38,7 @@ def test_model(model, loader):
             # embedding = model(seq, output_embedding=True).detach()
             # all_embedding.append(embedding.detach().cpu().numpy().astype(np.float16))
         # else:
-        output = model(seq).detach()
+        output = model(seq)[0].detach()
         output = torch.sigmoid(output).cpu().numpy().astype(np.float16)
         target = target.numpy().astype(np.int8)
         all_pred.append(output)
@@ -62,7 +62,8 @@ def test_model(model, loader):
 def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('-i', "--data", default="/bigdat1/user/chenken/data/single-cell/GSE194122_multiome_neurips2021/GSE194122_openproblems_neurips2021_multiome_BMMC_processed.ATAC.h5ad", help="h5ad data")
-    p.add_argument("--watch", choices=("auc", "ap", "mean"), default="ap")
+    p.add_argument("--watch", choices=("auc", "ap", "mean"), default="mean")
+    p.add_argument("-l2", type=float, default=1e-6)
     p.add_argument("-z", type=int, default=32)
     p.add_argument("-g", choices=("hg19", "hg38"), default="hg38")
     p.add_argument("-lr", type=float, default=1e-2)
@@ -135,6 +136,9 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len, batch_ids=ds.batche_ids).to(device)
+    if args.w is not None:
+        model.load_state_dict(torch.load(args.w))
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     logger.info("{}\n{}\n{}\n".format(model, model_summary(model), optimizer))
 
@@ -162,8 +166,8 @@ if __name__ == "__main__":
             target = target.to(device)
             optimizer.zero_grad()
             with autocast():
-                output = model(seq)
-                loss = criterion(output, target)
+                output, l2_reg = model(seq)
+                loss = criterion(output, target) + args.l2 * l2_reg
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -197,10 +201,12 @@ if __name__ == "__main__":
                 logger.info(f"Epoch {epoch+1}: early stopping")
                 break
     
-    if args.w is None:
-        model.load_state_dict(torch.load("{}/best_model.pt".format(args.outdir)))
-    else:
-        model.load_state_dict(torch.load(args.w))
+    # if args.w is None:
+    #     model.load_state_dict(torch.load("{}/best_model.pt".format(args.outdir)))
+    # else:
+    #     model.load_state_dict(torch.load(args.w))
+
+    model.load_state_dict(torch.load("{}/best_model.pt".format(args.outdir)))
     embedding = model.get_embedding().detach().cpu().numpy().astype(np.float32)
     logger.info("embedding: {}".format(embedding.shape))
     adata = sc.AnnData(
