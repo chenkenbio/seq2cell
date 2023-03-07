@@ -109,12 +109,14 @@ class scBasset(nn.Module):
         sequence = self.flatten(sequence)
         sequence = self.dense(sequence) # (B, hidden_size)
         logits = self.cell_embedding(sequence)
-        lr_reg = torch.norm(self.cell_embedding.weight, p=2) + torch.norm(self.cell_embedding.bias, p=2)
+        lr_reg_cell = torch.norm(self.cell_embedding.weight, p=2) + torch.norm(self.cell_embedding.bias, p=2)
         if self.batch_ids is not None:
             batch_embed = self.batch_embedding(self.batch_ids).T # (n_cell, hidden_size) -> (hidden_size, n_cell)
             logits += torch.matmul(sequence, batch_embed)
-            lr_reg += torch.norm(self.batch_embedding.weight, p=2)
+            lr_reg_batch = torch.norm(self.batch_embedding.weight, p=2)
+        else:
+            lr_reg_batch = 0
         
-        return logits, lr_reg
+        return logits, lr_reg_cell, lr_reg_batch
 
         # return self.cell_embedding(self.dense(sequence))

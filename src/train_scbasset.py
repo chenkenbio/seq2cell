@@ -63,7 +63,8 @@ def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('-i', "--data", default="/bigdat1/user/chenken/data/single-cell/GSE194122_multiome_neurips2021/GSE194122_openproblems_neurips2021_multiome_BMMC_processed.ATAC.h5ad", help="h5ad data")
     p.add_argument("--watch", choices=("auc", "ap", "mean"), default="mean")
-    p.add_argument("-l2", type=float, default=1e-6)
+    p.add_argument("-l21", type=float, default=1e-6)
+    p.add_argument("-l22", type=float, default=1e-6)
     p.add_argument("-z", type=int, default=32)
     p.add_argument("-g", choices=("hg19", "hg38"), default="hg38")
     p.add_argument("-lr", type=float, default=1e-2)
@@ -74,7 +75,6 @@ def get_args():
     p.add_argument("-w")
     p.add_argument('--seed', type=int, default=2020)
     return p
-
 
 
 if __name__ == "__main__":
@@ -166,8 +166,8 @@ if __name__ == "__main__":
             target = target.to(device)
             optimizer.zero_grad()
             with autocast():
-                output, l2_reg = model(seq)
-                loss = criterion(output, target) + args.l2 * l2_reg
+                output, cell_l2, batch_l2 = model(seq)
+                loss = criterion(output, target) + args.l21 * cell_l2 + args.l22 * batch_l2
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
