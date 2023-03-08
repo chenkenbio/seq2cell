@@ -93,9 +93,9 @@ class ResBlock(nn.Module):
         return self.pool(x + residual)
 
 # seq_len = 65536
-class SequenceEncoder(nn.Module):
+class ConvEncoder(nn.Module):
     def __init__(self, kernel_num=256, seq_len: int=512 * 128) -> None:
-        super().__init__()
+        super(ConvEncoder, self).__init__()
         self.onehot = nn.Parameter(ONEHOT, requires_grad=False)
         self.pre_conv = nn.Sequential(
             nn.Conv1d(4, kernel_num, 17, padding=8),
@@ -103,10 +103,14 @@ class SequenceEncoder(nn.Module):
             nn.ReLU(),
             nn.MaxPool1d(8, stride=8),
         ) # (batch_size, kernel_num, seq_len / 8)
+        seq_len = seq_len // 8
         convs = []
         for i in range(3):
             convs.append(ResBlock(kernel_num, 9))
+            seq_len = seq_len // 4
         self.convs = nn.Sequential(*convs)
+        self.seq_len = seq_len
+        self.h_dim = kernel_num
     
     def forward(self, x: Tensor) -> Tensor:
         x = self.onehot[x].transpose(1, 2)
@@ -115,6 +119,53 @@ class SequenceEncoder(nn.Module):
         return x
             
 
+class AttentionEncoder(nn.Module):
+    def __init__(self, h_dim: int, seq_len: int, nhead=8) -> None:
+        super().__init__()
+        self.pos_embedding = nn.Embedding(seq_len, h_dim)
+        enc = nn.TransformerEncoderLayer(
+            d_model=h_dim,
+            nhead=nhead,
+            dim_feedforward=2 * h_dim,
+            dropout=0.1,
+            activation='relu',
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(enc, num_layers=2)
+    
+    def forward(self, x: Tensor) -> Tensor:
+        pos = torch.arange(x.shape[1], device=x.device)
+        x = x + self.pos_embedding(pos)
+        return self.encoder(x)
+
+
+class WeightedGlobalPooling(nn.Module):
+    def __init__(self, h_dim, n_head) -> None:
+        super().__init__()
+        self.to_weight = nn.Conv1d(h_dim, out_channels=n_head, kernel_size=1)
+    
+    def forward(self, x: Tensor) -> Tensor:
+        r"""
+        x: (batch_size, h_dim, seq_len)
+        """
+        weight = self.to_weight.forward(x) # (batch_size, n_head, seq_len)
+        weight = weight.softmax(2).transpose(1, 2) # (batch_size, seq_len, n_head)
+        x = torch.matmul(x, weight) # (batch_size, h_dim, n_head)
+        return x.mean(dim=2)
+
+class SequenceEncoder(nn.Module):
+    def __init__(self, h_dim, seq_len) -> None:
+        super().__init__()
+        self.conv_encoder = ConvEncoder(h_dim, seq_len)
+        self.attn_encoder = AttentionEncoder(h_dim, seq_len)
+        self.pooling = WeightedGlobalPooling(h_dim, 8)
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv_encoder(x)
+        x = x.transpose(1, 2)
+        x = self.attn_encoder(x)
+        x = x.transpose(1, 2)
+        x = self.pooling(x)
+        return x
 
 from torch.distributions import NegativeBinomial
 
@@ -163,6 +214,7 @@ class Peak2Cell(nn.Module):
     def __init__(self, n_cells, encoder: nn.Module, gene_ids: Union[Tensor, np.ndarray], batch_ids: Optional[Tensor]=None, bottleneck_size: int=32) -> None:
         super().__init__()
         self.encoder = encoder
+        self.bottleneck = nn.Linear(encoder.h_dim, bottleneck_size)
         self.decoder = NBPredictor(
             bottleneck=bottleneck_size,
             n_cells=n_cells,
@@ -174,6 +226,7 @@ class Peak2Cell(nn.Module):
         assert sequence.shape[0] == gene_ids.shape[0], "sequence.shape[0] = {}, gene_ids.shape[0] = {}".format(sequence.shape[0], gene_ids.shape[0]) # each sample is a gene
 
         sequence = self.encoder(sequence) # (batch_size, hidden_size), batch_size: genes
+        sequence = self.bottleneck(sequence) # (batch_size, bottleneck_size)
         return self.decoder(sequence, gene_ids)
 
 
