@@ -117,7 +117,7 @@ class ConvEncoder(nn.Module):
         x = self.pre_conv(x)
         x = self.convs(x)
         return x
-            
+
 
 class AttentionEncoder(nn.Module):
     def __init__(self, h_dim: int, seq_len: int, nhead=8) -> None:
@@ -159,6 +159,8 @@ class SequenceEncoder(nn.Module):
         self.conv_encoder = ConvEncoder(h_dim, seq_len)
         self.attn_encoder = AttentionEncoder(h_dim, seq_len)
         self.pooling = WeightedGlobalPooling(h_dim, 8)
+        self.out_dim = self.conv_encoder.h_dim
+
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv_encoder(x)
         x = x.transpose(1, 2)
@@ -210,11 +212,13 @@ class NBPredictor(GenePredictor):
         return loss
 
 
+
+
 class Peak2Cell(nn.Module):
     def __init__(self, n_cells, encoder: nn.Module, gene_ids: Union[Tensor, np.ndarray], batch_ids: Optional[Tensor]=None, bottleneck_size: int=32) -> None:
         super().__init__()
         self.encoder = encoder
-        self.bottleneck = nn.Linear(encoder.h_dim, bottleneck_size)
+        self.bottleneck = nn.Linear(encoder.out_dim, bottleneck_size)
         self.decoder = NBPredictor(
             bottleneck=bottleneck_size,
             n_cells=n_cells,
