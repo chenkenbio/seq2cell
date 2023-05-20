@@ -27,7 +27,7 @@ from biock import HG19_FASTA_H5, HG38_FASTA_H5
 
 @torch.no_grad()
 @autocast()
-def test_model(model, loader):
+def test_model(model, loader, subset=None):
     model.eval()
     all_label = list()
     all_pred = list()
@@ -51,9 +51,10 @@ def test_model(model, loader):
     all_label = np.concatenate(all_label, axis=0)
     val_ap = list() # ap per peak
     val_auc = list()
-    for i in tqdm(range(0, all_pred.shape[1], 10), desc="Calculating AP"):
-        val_ap.append(average_precision_score(all_label[:, i], all_pred[:, i]))
-        val_auc.append(roc_auc_score(all_label[:, i], all_pred[:, i]))
+    test_inds = range(all_pred.shape[0])
+    for i in tqdm(test_inds, desc="Calculating AP"):
+        val_ap.append(average_precision_score(all_label[i], all_pred[i]))
+        val_auc.append(roc_auc_score(all_label[i], all_pred[i]))
     val_ap = np.array(val_ap)
     val_auc = np.array(val_auc)
     return val_ap, val_auc
@@ -65,13 +66,18 @@ def get_args():
     p.add_argument("--watch", choices=("auc", "ap", "mean"), default="mean")
     p.add_argument("-l21", type=float, default=1e-6)
     p.add_argument("-l22", type=float, default=1e-6)
+    p.add_argument("--warmup", type=int, default=0, help="validate every 10 epoches in warmup")
+    p.add_argument("--weight-decay", type=float, default=0, help="weight decay")
     p.add_argument("-z", type=int, default=32)
-    p.add_argument("-g", choices=("hg19", "hg38"), default="hg38")
+    p.add_argument("-g", choices=("hg19", "hg38", "hg38-shuffle"), required=True)
     p.add_argument("-lr", type=float, default=1e-2)
     p.add_argument('-b', "--batch-size", help="batch size", type=int, default=64)
     p.add_argument("--num-workers", help="number of workers", type=int, default=32)
+    p.add_argument("--no-bias", action="store_true")
     p.add_argument("--seq-len", type=int, default=1344)
     p.add_argument("-o", "--outdir", help="output directory", default="output")
+
+    p.add_argument("--disable-earlystopping", action="store_true")
     p.add_argument("-w")
     p.add_argument('--seed', type=int, default=2020)
     return p
@@ -89,9 +95,15 @@ if __name__ == "__main__":
 
     if args.g == "hg38":
         genome = HG38_FASTA_H5
+    elif args.g == "hg38-shuffle":
+        genome = "/data0/user/chenken/db/gencode/GRCh38/GRCh38.primary_assembly.shuffled-genome.fa.h5"
     elif args.g == "hg19":
         genome = HG19_FASTA_H5
     ds = dataset.SingleCellDataset(dataset.load_adata(args.data), seq_len=args.seq_len, genome=genome)
+    # if ds.X.shape[1] > 1000:
+    #     subset = np.random.permutation(np.arange(ds.X.shape[1]))[:1000]
+    # else:
+    #     subset = None
 
     train_loader = DataLoader(
         ds,
@@ -103,7 +115,7 @@ if __name__ == "__main__":
         prefetch_factor=4
     )
     
-    sampled = np.random.permutation(np.arange(len(ds)))[:5000]
+    sampled = np.random.permutation(np.arange(len(ds)))[:1000]
     valid_loader = DataLoader(
         Subset(ds, sampled),
         batch_size=args.batch_size,
@@ -135,11 +147,11 @@ if __name__ == "__main__":
     # )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len, batch_ids=ds.batche_ids).to(device)
+    model = scbasset.scBasset(n_cells=ds.X.shape[1], hidden_size=args.z, seq_len=args.seq_len, batch_ids=ds.batche_ids, bias=not args.no_bias).to(device)
     if args.w is not None:
         model.load_state_dict(torch.load(args.w))
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     logger.info("{}\n{}\n{}\n".format(model, model_summary(model), optimizer))
 
     criterion = nn.BCEWithLogitsLoss()
@@ -155,6 +167,8 @@ if __name__ == "__main__":
     best_score = 0
     wait = 0
     patience = 20
+
+    train_iters = len(train_loader)
 
     max_epoch = 1000
     for epoch in range(max_epoch):
@@ -175,7 +189,20 @@ if __name__ == "__main__":
 
             lr = optimizer.param_groups[-1]["lr"]
             pbar.set_postfix_str(f"loss/lr={np.nanmean(pool):.4f}/{lr:.3e}")
+
+        del seq, target, loss
         
+        if epoch < args.warmup and epoch % 10 != 0:
+            logger.info(f"skip validation at epoch {epoch + 1} (warmup)")
+            continue
+        elif epoch < args.warmup * 2 and epoch % 5 != 0:
+            logger.info(f"skip validation at epoch {epoch + 1} (2 * warmup)")
+            continue
+        elif epoch % 2 != 0:
+            logger.info(f"skip validation at epoch {epoch + 1}")
+            continue
+        
+
         val_ap, val_auc = test_model(model, valid_loader)
 
         logger.info("Validation{} AP={:.4f}/{:.4f} AUC={:.4f}/{:.4f}".format((epoch + 1), val_ap.mean(), np.std(val_ap), val_auc.mean(), np.std(val_auc)))
@@ -189,6 +216,9 @@ if __name__ == "__main__":
 
         scheduler.step(val_score)
 
+        # if args.disable_earlystopping:
+        #     continue
+        # else:
         if val_score > best_score:
             best_score = val_score
             wait = 0
@@ -197,7 +227,7 @@ if __name__ == "__main__":
         else:
             wait += 1
             logger.info(f"Epoch {epoch+1}: early stopping patience {wait}/{patience}\n")
-            if wait >= patience:
+            if wait >= patience and not args.disable_earlystopping:
                 logger.info(f"Epoch {epoch+1}: early stopping")
                 break
     
