@@ -37,7 +37,7 @@ class ConvTower(nn.Module):
         return self.conv(x)
 
 class scBasset(nn.Module):
-    def __init__(self, n_cells: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, seq_len: int=1344):
+    def __init__(self, n_cells: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, seq_len: int=1344, bias: bool=True):
         super().__init__()
         self.config = {
             "n_cells": n_cells,
@@ -92,15 +92,17 @@ class scBasset(nn.Module):
         )
 
         # 6 
-        self.cell_embedding = nn.Linear(hidden_size, n_cells)
+        self.cell_embedding = nn.Linear(hidden_size, n_cells, bias=bias)
         # self.cell_embedding = nn.Parameter(torch.randn(hidden_size, n_cells)) # (hidden_size, n_cells)
         # self.cell_bias = nn.Parameter(torch.randn(n_cells))
     
     def get_embedding(self):
         return self.cell_embedding.state_dict()["weight"]
     
-    
     def forward(self, sequence: Tensor) -> Tensor:
+        r"""
+        sequence: (batch_size, seq_len), one-hot encoded sequence, 0: N, 1: A, 2: C, 3: G, 4: T, -1: padding
+        """
         # assert sequence.shape[1] == self.seq_len
         sequence = self.onehot[sequence.long()].transpose(1, 2)
         sequence = self.pre_conv(sequence)
