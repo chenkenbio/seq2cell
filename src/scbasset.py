@@ -122,3 +122,48 @@ class scBasset(nn.Module):
         return logits, lr_reg_cell, lr_reg_batch
 
         # return self.cell_embedding(self.dense(sequence))
+
+class OneHotModel(nn.Module):
+    def __init__(self, n_cells: int, n_peaks: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, bias: bool=True):
+        super(OneHotModel, self).__init__()
+        self.config = {
+            "n_cells": n_cells,
+            "n_peaks": n_peaks,
+            "hidden_size": hidden_size,
+            "seq_len": None
+        }
+        if batch_ids is None:
+            self.batch_ids = None
+        else:
+            self.batch_embedding = nn.Embedding(max(batch_ids) + 1, hidden_size)
+            self.batch_ids = nn.Parameter(torch.as_tensor(batch_ids), requires_grad=False)
+            assert self.batch_ids.ndim == 1
+        self.peak_embedding = nn.Embedding(n_peaks, embedding_dim=hidden_size)
+
+        # 6 
+        self.cell_embedding = nn.Linear(hidden_size, n_cells, bias=bias)
+        # self.cell_embedding = nn.Parameter(torch.randn(hidden_size, n_cells)) # (hidden_size, n_cells)
+        # self.cell_bias = nn.Parameter(torch.randn(n_cells))
+    
+    def get_embedding(self):
+        return self.cell_embedding.state_dict()["weight"]
+    
+    def forward(self, peak_ids: Tensor) -> Tensor:
+        r"""
+        sequence: (batch_size, seq_len), one-hot encoded sequence, 0: N, 1: A, 2: C, 3: G, 4: T, -1: padding
+        """
+        if peak_ids.ndim > 1:
+            peak_ids = peak_ids.squeeze(1)
+        sequence = self.peak_embedding(peak_ids)
+        logits = self.cell_embedding(sequence)
+        lr_reg_cell = torch.norm(self.cell_embedding.weight, p=2) + torch.norm(self.cell_embedding.bias, p=2)
+        if self.batch_ids is not None:
+            batch_embed = self.batch_embedding(self.batch_ids).T # (n_cell, hidden_size) -> (hidden_size, n_cell)
+            logits += torch.matmul(sequence, batch_embed)
+            lr_reg_batch = torch.norm(self.batch_embedding.weight, p=2)
+        else:
+            lr_reg_batch = 0
+        
+        return logits, lr_reg_cell, lr_reg_batch
+
+        # return self.cell_embedding(self.dense(sequence))
