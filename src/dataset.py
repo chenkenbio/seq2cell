@@ -36,7 +36,7 @@ def load_adata(data) -> AnnData:
     return adata
 
 class SingleCellDataset(Dataset):
-    def __init__(self, data: AnnData, genome, seq_len=1344):
+    def __init__(self, data: AnnData, genome, seq_len=1344, peak_id_only=False):
         sc.pp.filter_genes(data, min_cells=int(round(0.01 * data.shape[0])))
         self.data = data
         self.seq_len = seq_len
@@ -56,33 +56,37 @@ class SingleCellDataset(Dataset):
             self.batche_ids = np.asarray(self.obs['batch'].map(batch2index).values)
         else:
             self.batche_ids = None
+        self.peak_id_only = peak_id_only
 
     def __len__(self):
         return self.X.shape[0]
 
     def __getitem__(self, index):
-        if "loci" in self.data.var.keys():
-            chrom, region, strand = self.data.var["loci"][index].split(':')
+        if self.peak_id_only:
+            seq = index
         else:
-            chrom, region = self.data.var.index[index].split(':')
-            strand = '.'
-        start, end = region.split('-')
-        mid = (int(start) + int(end)) // 2
-        left, right = mid - self.seq_len//2, mid + self.seq_len//2
-        left_pad, right_pad = 0, 0
-        if left < 0:
-            left_pad = -left_pad
-            left = 0
-        if right > self.genome[chrom].shape[0]:
-            right_pad = right - self.genome[chrom].shape[0]
-            right = self.genome[chrom].shape[0]
-        seq = self.genome[chrom][left:right]
-        if len(seq) < self.seq_len:
-            seq = np.concatenate((
-                np.full(left_pad, -1, dtype=seq.dtype),
-                seq,
-                np.full(right_pad, -1, dtype=seq.dtype),
-            ))
-        if strand == '-':
-            seq = get_reverse_strand(seq, integer=True)
+            if "loci" in self.data.var.keys():
+                chrom, region, strand = self.data.var["loci"][index].split(':')
+            else:
+                chrom, region = self.data.var.index[index].split(':')
+                strand = '.'
+            start, end = region.split('-')
+            mid = (int(start) + int(end)) // 2
+            left, right = mid - self.seq_len//2, mid + self.seq_len//2
+            left_pad, right_pad = 0, 0
+            if left < 0:
+                left_pad = -left_pad
+                left = 0
+            if right > self.genome[chrom].shape[0]:
+                right_pad = right - self.genome[chrom].shape[0]
+                right = self.genome[chrom].shape[0]
+            seq = self.genome[chrom][left:right]
+            if len(seq) < self.seq_len:
+                seq = np.concatenate((
+                    np.full(left_pad, -1, dtype=seq.dtype),
+                    seq,
+                    np.full(right_pad, -1, dtype=seq.dtype),
+                ))
+            if strand == '-':
+                seq = get_reverse_strand(seq, integer=True)
         return seq, self.X[index].toarray().flatten().astype(np.float16)
